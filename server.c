@@ -22,6 +22,47 @@ void getargs(int *port, int argc, char *argv[])
     *port = atoi(argv[1]);
 }
 
+
+class thread_pool {
+    pthread_cond_t isFull;
+    pthread_mutex_t queueMutex;
+    const int queueMaxSize;
+    int queueCurrentSize = 0;
+
+//******************************queue class******************************/    
+    class TP_Queue {
+        
+        public:
+        
+        TP_Queue(int size) {    
+            //TODO: allocate array in the right size. 
+        }
+
+        //TODO: destractor.
+        
+        void enqueue (later x) { //TODO - check what later sapose to be.
+
+        } 
+
+        later dequeue () {
+
+        }
+
+    }
+//******************************queue class******************************/    
+
+    public: 
+
+    thread_pool (int size) : queueSize(size) {
+        pthread_cond_init(&isFull, nullptr);
+        if (pthread_cond_init(&queueMutex, nullptr) != 0) {
+            //TODO: print the error that the segel asked.
+        }
+
+    }
+
+    //TODO: distractor
+}
 // TODO: HW3 — Task 1: Initialize the thread pool and request queue.
 // This server currently handles all requests in the main thread.
 
