@@ -17,6 +17,15 @@ typedef struct Time_stats {
     struct timeval log_enter;
     struct timeval log_exit;
 } time_stats;
+
+
+
+typedef struct Request {
+    threads_stats m_ReqStats;
+    time_stats* m_timestats;
+    int m_fd;
+} Request;
+
 // Handles a client request.
 // - fd: the connection socket
 // - arrival: time the request arrived

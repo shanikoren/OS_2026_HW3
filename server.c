@@ -23,45 +23,60 @@ void getargs(int *port, int argc, char *argv[])
 }
 
 
-class thread_pool {
-    pthread_cond_t isFull;
+/*******************************queue struct******************************/
+typedef struct {
+    Request **items;  /* circular buffer of Request pointers */
+    int head;
+    int tail;
+    int maxSize;
+} TP_Queue;
+
+void tp_queue_init(TP_Queue *q, int maxSize) {
+    q->items = malloc(maxSize * sizeof(Request *));
+    //TODO: handle malloc failure
+    q->head    = 0;
+    q->tail    = 0;
+    q->maxSize = maxSize;
+}
+
+void tp_queue_destroy(TP_Queue *q) {
+    free(q->items);
+}
+
+void tp_queue_enqueue(TP_Queue *q, Request *x) {
+    q->items[q->tail] = x;
+    q->tail = (q->tail + 1) % q->maxSize;
+}
+
+Request *tp_queue_dequeue(TP_Queue *q) {
+    Request *x = q->items[q->head];
+    q->head = (q->head + 1) % q->maxSize;
+    return x;
+}
+/*******************************queue struct******************************/
+
+typedef struct {
+    pthread_cond_t  isFull;
     pthread_mutex_t queueMutex;
-    const int queueMaxSize;
-    int queueCurrentSize = 0;
+    int queueMaxSize;
+    int queueCurrentSize;
+    TP_Queue queue;
+} thread_pool;
 
-//******************************queue class******************************/    
-    class TP_Queue {
-        
-        public:
-        
-        TP_Queue(int size) {    
-            //TODO: allocate array in the right size. 
-        }
-
-        //TODO: destractor.
-        
-        void enqueue (later x) { //TODO - check what later sapose to be.
-
-        } 
-
-        later dequeue () {
-
-        }
-
+void thread_pool_init(thread_pool *tp, int size) {
+    tp->queueMaxSize     = size;
+    tp->queueCurrentSize = 0;
+    pthread_cond_init(&tp->isFull, NULL);
+    if (pthread_mutex_init(&tp->queueMutex, NULL) != 0) {
+        //TODO: print the error that segel asked.
     }
-//******************************queue class******************************/    
+    tp_queue_init(&tp->queue, size);
+}
 
-    public: 
-
-    thread_pool (int size) : queueSize(size) {
-        pthread_cond_init(&isFull, nullptr);
-        if (pthread_cond_init(&queueMutex, nullptr) != 0) {
-            //TODO: print the error that the segel asked.
-        }
-
-    }
-
-    //TODO: distractor
+void thread_pool_destroy(thread_pool *tp) {
+    pthread_cond_destroy(&tp->isFull);
+    pthread_mutex_destroy(&tp->queueMutex);
+    tp_queue_destroy(&tp->queue);
 }
 // TODO: HW3 — Task 1: Initialize the thread pool and request queue.
 // This server currently handles all requests in the main thread.

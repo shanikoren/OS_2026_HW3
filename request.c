@@ -205,3 +205,17 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
         free(body_content);
     }
 }
+
+
+
+//******************************our code from here******************************/    
+//******************************our code from here******************************/    
+//******************************our code from here******************************/    
+
+Request::Request() {
+    //TODO
+}
+
+Request::~Request() {
+    //TODO
+}
