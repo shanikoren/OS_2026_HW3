@@ -37,7 +37,10 @@ int append_stats(char* buf, threads_stats t_stats, time_stats tm_stats) {
 void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg, time_stats tm_stats, threads_stats t_stats)
 {
     char buf[MAXLINE], body[MAXBUF];
-
+    tm_stats.log_enter.tv_sec = 0;
+    tm_stats.log_enter.tv_usec = 0;
+    tm_stats.log_exit.tv_sec = 0;
+    tm_stats.log_exit.tv_usec = 0;
     // Safely build the body content
     sprintf(body, "<html><title>OS-HW3 Error</title>");
     sprintf(body + strlen(body), "<body bgcolor=\"fffff\">\r\n");
@@ -151,7 +154,7 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
     Rio_readinitb(&rio, fd);
     Rio_readlineb(&rio, buf, MAXLINE);
     sscanf(buf, "%s %s %s", method, uri, version);
-
+    t_stats->total_req++;
     if (strcasecmp(method, "GET") == 0) {
         requestReadhdrs(&rio);
         is_static = requestParseURI(uri, filename, cgiargs);
@@ -175,6 +178,7 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
             sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Content-Length: %d\r\n", body_len);
             sprintf(resp_headers + strlen(resp_headers), "Content-Type: %s\r\n", filetype);
+            t_stats->stat_req++;
         } else {
             if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
                 requestError(fd, filename, "403", "Forbidden", "OS-HW3 Server could not run this CGI program", tm_stats, t_stats);
@@ -184,10 +188,13 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
 
             sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
+            t_stats->dynm_req++;
         }
+        add_to_log(log, t_stats, &tm_stats);
     } else if (strcasecmp(method, "POST") == 0) {
-        body_len = get_log(log, (char**)&body_content);
-
+        requestReadhdrs(&rio);
+        t_stats->post_req++;
+        body_len = get_log(log, (char**)&body_content, &tm_stats);
         sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
         sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
         sprintf(resp_headers + strlen(resp_headers), "Content-Length: %d\r\n", body_len);
@@ -208,14 +215,4 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
 
 
 
-//******************************our code from here******************************/    
-//******************************our code from here******************************/    
-//******************************our code from here******************************/    
 
-Request::Request() {
-    //TODO
-}
-
-Request::~Request() {
-    //TODO
-}
