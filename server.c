@@ -23,7 +23,6 @@ void getargs(int *port, int argc, char *argv[])
 }
 
 
-/*******************************queue struct******************************/
 typedef struct {
     Request **items;  /* circular buffer of Request pointers */
     int head;
@@ -31,6 +30,16 @@ typedef struct {
     int maxSize;
 } TP_Queue;
 
+typedef struct {
+    pthread_cond_t  isFull;
+    pthread_cond_t  isEmpty;
+    pthread_mutex_t queueMutex;
+    int queueMaxSize;
+    int queueCurrentSize;
+    TP_Queue queue;
+} thread_pool;
+
+/*******************************queue struct******************************/
 void tp_queue_init(TP_Queue *q, int maxSize) {
     q->items = malloc(maxSize * sizeof(Request *));
     //TODO: handle malloc failure
@@ -43,30 +52,37 @@ void tp_queue_destroy(TP_Queue *q) {
     free(q->items);
 }
 
-void tp_queue_enqueue(TP_Queue *q, Request *x) {
+void tp_queue_enqueue(TP_Queue *q, Request *x, thread_pool *tp) {
+    pthread_mutex_lock(&tp->queueMutex);
+    while(tp->queueCurrentSize == tp->queueMaxSize) {
+        pthread_cond_wait(&tp->isFull, &tp->queueMutex);
+    }
     q->items[q->tail] = x;
     q->tail = (q->tail + 1) % q->maxSize;
+    tp->queueCurrentSize++;
+    pthread_cond_signal(&tp->isEmpty);
+    pthread_mutex_unlock(&tp->queueMutex);
 }
 
-Request *tp_queue_dequeue(TP_Queue *q) {
+Request *tp_queue_dequeue(TP_Queue *q, thread_pool *tp) {
+    pthread_mutex_lock(&tp->queueMutex);
+    while(tp->queueCurrentSize == 0) {
+        pthread_cond_wait(&tp->isEmpty, &tp->queueMutex);
+    }
     Request *x = q->items[q->head];
     q->head = (q->head + 1) % q->maxSize;
+    tp->queueCurrentSize--;
+    pthread_cond_signal(&tp->isFull);
+    pthread_mutex_unlock(&tp->queueMutex);
     return x;
 }
 /*******************************queue struct******************************/
-
-typedef struct {
-    pthread_cond_t  isFull;
-    pthread_mutex_t queueMutex;
-    int queueMaxSize;
-    int queueCurrentSize;
-    TP_Queue queue;
-} thread_pool;
 
 void thread_pool_init(thread_pool *tp, int size) {
     tp->queueMaxSize     = size;
     tp->queueCurrentSize = 0;
     pthread_cond_init(&tp->isFull, NULL);
+    pthread_cond_init(&tp->isEmpty, NULL);
     if (pthread_mutex_init(&tp->queueMutex, NULL) != 0) {
         //TODO: print the error that segel asked.
     }
@@ -75,9 +91,12 @@ void thread_pool_init(thread_pool *tp, int size) {
 
 void thread_pool_destroy(thread_pool *tp) {
     pthread_cond_destroy(&tp->isFull);
+    pthread_cond_destroy(&tp->isEmpty);
     pthread_mutex_destroy(&tp->queueMutex);
     tp_queue_destroy(&tp->queue);
 }
+
+
 // TODO: HW3 — Task 1: Initialize the thread pool and request queue.
 // This server currently handles all requests in the main thread.
 
@@ -90,10 +109,13 @@ int main(int argc, char *argv[])
     // Create the global server log
     server_log log = create_log();
 
-    int listenfd, connfd, port, clientlen;
+    int listenfd, connfd, port, clientlen, numThreads, queueSize;
     struct sockaddr_in clientaddr;
 
-    getargs(&port, argc, argv);
+    getargs(&port, argc, argv);  // TODO: extend getargs to parse numThreads and queueSize too
+
+    thread_pool tp;
+    thread_pool_init(&tp, queueSize);
 
     listenfd = Open_listenfd(port);
     while (1) {
