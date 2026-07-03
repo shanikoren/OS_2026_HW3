@@ -2,6 +2,17 @@
 #include "request.h"
 #include "log.h"
 
+//[] queue free workers
+//   () 
+//[] array all workers
+//[] pull out the Req queue to nifrad
+//  () pull out init & destroy
+//  () 
+//[] le'adken getargs
+//[] lesader main
+
+
+
 //
 // server.c: A very, very simple web server
 //
@@ -79,6 +90,8 @@ Request *tp_queue_dequeue(TP_Queue *q, thread_pool *tp) {
 /*******************************queue struct******************************/
 
 void thread_pool_init(thread_pool *tp, int size) {
+    
+/********TP_Queue init*********/    
     tp->queueMaxSize     = size;
     tp->queueCurrentSize = 0;
     pthread_cond_init(&tp->isFull, NULL);
@@ -87,6 +100,11 @@ void thread_pool_init(thread_pool *tp, int size) {
         //TODO: print the error that segel asked.
     }
     tp_queue_init(&tp->queue, size);
+
+/********TP_Worker init*********/    
+
+
+
 }
 
 void thread_pool_destroy(thread_pool *tp) {
