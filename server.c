@@ -49,19 +49,19 @@ typedef struct {
 } Req_Queue;
 
 typedef struct {
-    Worker **m_FreeWorkers;  /* circular buffer of Request pointers */
-    int m_FWHead;
-    int m_FWTail;
-    int m_maxWorkers;
-    int m_FWQCurrentSize;
-} FW_Queue; //Free Worker Queue 
-
+    Req_Queue       *TPs_rq;
+    threads_stats   *m_StatsArray;
+    pthread_t       *m_ThreadIds;
+    int              m_numWorkers;
+    server_log       TPs_log;
+} thread_pool;
 
 typedef struct {
-    FW_Queue  *TPs_fwq;
-    Req_Queue *TPs_rq;
-    Worker    **m_AllWorkersArray;
-} thread_pool;
+    thread_pool     *tp;
+    int              worker_idx;
+} worker_arg;
+
+static void *worker_routine(void *arg);
 
 /*******************************Req queue struct******************************/
 void Req_queue_init(Req_Queue *rq, int maxSize) {
@@ -110,55 +110,72 @@ Request *rq_queue_dequeue(Req_Queue *rq) {
     return x;
 }
 /******************************* Req queue struct ******************************/
-/******************************* FW  queue struct ******************************/
-void fw_queue_init(FW_Queue *fwq, int maxSize) {
-    fwq->m_FreeWorkers = malloc(maxSize * sizeof(Worker *));
-    if (fwq->m_FreeWorkers == NULL) unix_error("malloc failed");
-    fwq->m_FWQCurrentSize = 0;
-    fwq->m_FWHead         = 0;
-    fwq->m_FWTail         = 0;
-    fwq->m_maxWorkers     = maxSize;
-}
-
-void fw_queue_destroy(FW_Queue *fwq) {
-    free(fwq->m_FreeWorkers);
-}
-
-void fwq_enqueue(FW_Queue *fwq, Worker *w) {
-    fwq->m_FreeWorkers[fwq->m_FWTail] = w;
-    fwq->m_FWTail = (fwq->m_FWTail + 1) % fwq->m_maxWorkers;
-    fwq->m_FWQCurrentSize++;
-}
-
-Worker *fwq(FW_Queue *fwq) {
-    Worker *w = fwq->m_FreeWorkers[fwq->m_FWHead];
-    fwq->m_FWHead = (fwq->m_FWHead + 1) % fwq->m_maxWorkers;
-    fwq->m_FWQCurrentSize--;
-    return w;
-}
-/******************************* FW   queue  struct ******************************/
 /******************************* ThreadPool  struct ******************************/
 
-void thread_pool_init(thread_pool *tp, int MaxReqs, int MaxWorkers) {
+void thread_pool_init(thread_pool *tp, int MaxReqs, int MaxWorkers, server_log log) {
     tp->TPs_rq = malloc(sizeof(Req_Queue));
     if (tp->TPs_rq == NULL) unix_error("malloc failed");
     Req_queue_init(tp->TPs_rq, MaxReqs);
 
-    tp->TPs_fwq = malloc(sizeof(FW_Queue));
-    if (tp->TPs_fwq == NULL) unix_error("malloc failed");
-    fw_queue_init(tp->TPs_fwq, MaxWorkers);
+    tp->TPs_log         = log;
+    tp->m_numWorkers    = MaxWorkers;
+
+    tp->m_StatsArray = malloc(MaxWorkers * sizeof(threads_stats));
+    if (tp->m_StatsArray == NULL) unix_error("malloc failed");
+    tp->m_ThreadIds = malloc(MaxWorkers * sizeof(pthread_t));
+    if (tp->m_ThreadIds == NULL) unix_error("malloc failed");
+
+    for (int i = 0; i < MaxWorkers; i++) {
+        threads_stats stats = malloc(sizeof(struct Threads_stats));
+        if (stats == NULL) unix_error("malloc failed");
+        stats->id        = i + 1;
+        stats->stat_req  = 0;
+        stats->dynm_req  = 0;
+        stats->post_req  = 0;
+        stats->total_req = 0;
+        tp->m_StatsArray[i] = stats;
+        
+        worker_arg *wa = malloc(sizeof(worker_arg));
+        if (wa == NULL) unix_error("malloc failed");
+        wa->tp = tp;
+        wa->worker_idx = i;
+
+        int rc = pthread_create(&tp->m_ThreadIds[i], NULL, worker_routine, wa);
+        if (rc != 0) posix_error(rc, "pthread_create failed");
+    }
+}
+
+// Each worker thread runs this loop for the lifetime of the server:
+// pull the next connection off the shared queue and handle it.
+static void *worker_routine(void *arg) {
+    worker_arg *wa = (worker_arg *)arg;
+    thread_pool *tp = wa->tp;
+    threads_stats stats = tp->m_StatsArray[wa->worker_idx];
+    free(wa);
+
+    while (1) {
+        Request *req = rq_queue_dequeue(tp->TPs_rq);
+
+        gettimeofday(&req->m_timestats->task_dispatch, NULL);
+        requestHandle(req->m_fd, *req->m_timestats, stats, tp->TPs_log);
+
+        Close(req->m_fd);
+        free(req->m_timestats);
+        free(req);
+    }
+    return NULL;
 }
 
 void thread_pool_destroy(thread_pool *tp) {
     Req_queue_destroy(tp->TPs_rq);
     free(tp->TPs_rq);
-    fw_queue_destroy(tp->TPs_fwq);
-    free(tp->TPs_fwq);
+    for (int i = 0; i < tp->m_numWorkers; i++) {
+        free(tp->m_StatsArray[i]);
+    }
+    free(tp->m_StatsArray);
+    free(tp->m_ThreadIds);
 }
 
-
-// TODO: HW3 — Task 1: Initialize the thread pool and request queue.
-// This server currently handles all requests in the main thread.
 
 // TODO: HW3 — Task 4: Add the UDP channel (see the UDP_* wrappers in segel.c).
 
@@ -174,33 +191,25 @@ int main(int argc, char *argv[])
     server_log log = create_log(debugSleepTime);
 
     thread_pool tp;
-    thread_pool_init(&tp, queueSize, numThreads);
+    thread_pool_init(&tp, queueSize, numThreads, log);
 
     listenfd = Open_listenfd(tcpPort);
     while (1) {
         clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t*) &clientlen);
 
-        // TODO: HW3 — Record the request arrival time here.
+        Request *req = malloc(sizeof(Request));
+        if (req == NULL) unix_error("malloc failed");
+        req->m_fd = connfd;
+        req->m_timestats = malloc(sizeof(time_stats));
+        if (req->m_timestats == NULL) unix_error("malloc failed");
+        gettimeofday(&req->m_timestats->task_arrival, NULL);
 
-        // DEMO PURPOSE ONLY:
-        // This is a dummy request handler that immediately processes the
-        // request in the master thread without concurrency. Replace this with
-        // logic that enqueues the connection so a worker thread handles it.
-        
-        time_stats dum;
-
-        // gettimeofday(&arrival, NULL);
-
-        // Call the request handler (immediate in master thread — DEMO ONLY)
-        requestHandle(connfd, dum, t, log);
-
-        free(t); // Cleanup
-        Close(connfd); // Close the connection
+        // Hand the connection off to the queue; a worker thread will pick it up.
+        rq_enqueue(tp.TPs_rq, req);
     }
 
     // Clean up the server log before exiting
     destroy_log(log);
-
-    // TODO: HW3 — Add cleanup code for the thread pool and queue.
+    thread_pool_destroy(&tp);
 }

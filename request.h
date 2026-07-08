@@ -18,16 +18,11 @@ typedef struct Time_stats {
     struct timeval log_exit;
 } time_stats;
 
-typedef struct {
-    threads_stats m_ReqStats;
-    Request* m_currentReq;
-} Worker;
-
 typedef struct Request {
-    Worker* m_worker;
     time_stats* m_timestats;
     int m_fd;
 } Request;
+
 
 // Handles a client request.
 // - fd: the connection socket
