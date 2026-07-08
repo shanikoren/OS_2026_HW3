@@ -88,7 +88,8 @@ void add_to_log(server_log log, struct Threads_stats* t_stats, struct Time_stats
     }
     if (tm_stats) take_time(&tm_stats->log_exit);
     char record[MAXBUF];
-    int rec_len = append_stats(record, t_stats, tm_stats);
+    record[0] = '\0';
+    int rec_len = append_stats(record, t_stats, *tm_stats);
     int add_hash = (log->size > 0) ? 1 : 0;
     if (log->size + rec_len + add_hash + 1 > log->capacity) {
         log->capacity = (log->size + rec_len + add_hash + 1) * 2;   //buffer grows dynamically

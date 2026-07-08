@@ -2,14 +2,6 @@
 #define SERVER_LOG_H
 
 #include <sys/time.h>
-// TODO:
-// Implement a thread-safe server log system.
-// - The log should support concurrent access from multiple threads.
-// - You must implement a multiple-readers/single-writer synchronization model.
-// - Writers must have priority over readers.
-//   This means that if a writer is waiting, new readers should be blocked until the writer is done.
-// - Use appropriate synchronization primitives (e.g., pthread mutexes and condition variables).
-// - The log should allow appending entries and returning the full log content.
 
 typedef struct Server_Log* server_log;
 
